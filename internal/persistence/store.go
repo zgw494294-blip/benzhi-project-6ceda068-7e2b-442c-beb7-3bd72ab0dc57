@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
@@ -19,7 +20,9 @@ type Store struct {
 	directory    string
 	logPath      string
 	snapshotPath string
+	lockPath     string
 	logFile      *os.File
+	lockFile     *os.File
 	aggregates   map[string]observatory.Aggregate
 	audits       map[string][]observatory.AuditEvent
 	idempotency  map[string]idempotencyRecord
@@ -36,24 +39,48 @@ func Open(directory string) (*Store, error) {
 	if err := os.MkdirAll(directory, 0o750); err != nil {
 		return nil, errf("DATA_DIRECTORY_FAILED", "创建数据目录失败：%v", err)
 	}
+	lockPath := filepath.Join(directory, ".store.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o640)
+	if err != nil {
+		return nil, errf("STORE_LOCK_OPEN_FAILED", "打开数据目录排他锁失败：%v", err)
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lockFile.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, errf("DATA_DIRECTORY_IN_USE", "数据目录已被其他活动仓储占用")
+		}
+		return nil, errf("STORE_LOCK_ACQUIRE_FAILED", "获取数据目录排他锁失败：%v", err)
+	}
 	store := &Store{
 		directory:    directory,
 		logPath:      filepath.Join(directory, "events.jsonl"),
 		snapshotPath: filepath.Join(directory, "snapshot.json"),
+		lockPath:     lockPath,
+		lockFile:     lockFile,
 		aggregates:   map[string]observatory.Aggregate{},
 		audits:       map[string][]observatory.AuditEvent{},
 		idempotency:  map[string]idempotencyRecord{},
 		now:          time.Now,
 	}
 	if err := store.recover(); err != nil {
+		store.releaseLock()
 		return nil, err
 	}
 	file, err := os.OpenFile(store.logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 	if err != nil {
+		store.releaseLock()
 		return nil, errf("EVENT_LOG_OPEN_FAILED", "打开事件日志失败：%v", err)
 	}
 	store.logFile = file
 	return store, nil
+}
+
+func (s *Store) releaseLock() {
+	if s.lockFile == nil {
+		return
+	}
+	_ = syscall.Flock(int(s.lockFile.Fd()), syscall.LOCK_UN)
+	s.lockFile.Close()
 }
 
 func (s *Store) Commit(ctx context.Context, request CommitRequest) (CommitResult, error) {
@@ -186,8 +213,10 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
-	if s.logFile == nil {
-		return nil
+	var errs []error
+	if s.logFile != nil {
+		errs = append(errs, s.logFile.Sync(), s.logFile.Close())
 	}
-	return errors.Join(s.logFile.Sync(), s.logFile.Close())
+	s.releaseLock()
+	return errors.Join(errs...)
 }
