@@ -1,6 +1,12 @@
 package persistence
 
-import "os"
+import (
+	"encoding/json"
+	"os"
+	"reflect"
+
+	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
+)
 
 func (s *Store) recover() error {
 	snapshot, snapshotExists, err := readSnapshot(s.snapshotPath)
@@ -16,6 +22,7 @@ func (s *Store) recover() error {
 	}
 	verifiedSequence := int64(0)
 	verifiedHash := ""
+	derived := newDerivedProjection()
 	err = readEventLog(s.logPath, func(record eventRecord) error {
 		if record.SchemaVersion != schemaVersion {
 			return errf("EVENT_SCHEMA_UNSUPPORTED", "不支持事件 schemaVersion %d", record.SchemaVersion)
@@ -31,6 +38,12 @@ func (s *Store) recover() error {
 		}
 		verifiedSequence = record.Sequence
 		verifiedHash = record.Hash
+		derived.apply(record)
+		if snapshotExists && record.Sequence == snapshot.LastSequence {
+			if err := derived.compareWithSnapshot(snapshot); err != nil {
+				return err
+			}
+		}
 		if record.Sequence > s.lastSequence {
 			s.applyRecord(record)
 		}
@@ -65,4 +78,89 @@ func (s *Store) applyRecord(record eventRecord) {
 	}
 	s.lastSequence = record.Sequence
 	s.lastHash = record.Hash
+}
+
+type derivedProjection struct {
+	aggregates  map[string]observatory.Aggregate
+	audits      map[string][]observatory.AuditEvent
+	idempotency map[string]idempotencyRecord
+}
+
+func newDerivedProjection() *derivedProjection {
+	return &derivedProjection{
+		aggregates:  map[string]observatory.Aggregate{},
+		audits:      map[string][]observatory.AuditEvent{},
+		idempotency: map[string]idempotencyRecord{},
+	}
+}
+
+func (d *derivedProjection) apply(record eventRecord) {
+	d.aggregates[record.TaskID] = observatoryClone(record.Aggregate)
+	d.audits[record.TaskID] = append(d.audits[record.TaskID], record.Audit)
+	key := record.Operation + "\x00" + record.IdempotencyKey
+	d.idempotency[key] = idempotencyRecord{
+		TaskID: record.TaskID, Operation: record.Operation,
+		Result: append([]byte(nil), record.Result...), Aggregate: observatoryClone(record.Aggregate),
+	}
+}
+
+func (d *derivedProjection) compareWithSnapshot(snapshot snapshotPayload) error {
+	if len(d.aggregates) != len(snapshot.Aggregates) {
+		return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照聚合投影与事件日志推导结果不一致")
+	}
+	for id, aggregate := range snapshot.Aggregates {
+		derived, ok := d.aggregates[id]
+		if !ok || !equalAggregate(derived, aggregate) {
+			return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照聚合投影与事件日志推导结果不一致")
+		}
+	}
+	if len(d.audits) != len(snapshot.Audits) {
+		return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照审计投影与事件日志推导结果不一致")
+	}
+	for id, events := range snapshot.Audits {
+		derived, ok := d.audits[id]
+		if !ok || len(derived) != len(events) {
+			return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照审计投影与事件日志推导结果不一致")
+		}
+		for index := range events {
+			if !reflect.DeepEqual(derived[index], events[index]) {
+				return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照审计投影与事件日志推导结果不一致")
+			}
+		}
+	}
+	if len(d.idempotency) != len(snapshot.Idempotency) {
+		return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照幂等投影与事件日志推导结果不一致")
+	}
+	for key, record := range snapshot.Idempotency {
+		derived, ok := d.idempotency[key]
+		if !ok || derived.TaskID != record.TaskID || derived.Operation != record.Operation {
+			return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照幂等投影与事件日志推导结果不一致")
+		}
+		if !rawJSONEqual(derived.Result, record.Result) || !equalAggregate(derived.Aggregate, record.Aggregate) {
+			return errf("SNAPSHOT_PROJECTION_MISMATCH", "快照幂等投影与事件日志推导结果不一致")
+		}
+	}
+	return nil
+}
+
+func rawJSONEqual(a, b json.RawMessage) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return reflect.DeepEqual(a, b)
+	}
+	var av, bv any
+	if err := json.Unmarshal(a, &av); err != nil {
+		return false
+	}
+	if err := json.Unmarshal(b, &bv); err != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
+}
+
+func equalAggregate(a, b observatory.Aggregate) bool {
+	return reflect.DeepEqual(a.Task, b.Task) &&
+		reflect.DeepEqual(a.Revisions, b.Revisions) &&
+		reflect.DeepEqual(a.Findings, b.Findings) &&
+		reflect.DeepEqual(a.Manifest, b.Manifest) &&
+		reflect.DeepEqual(a.Credential, b.Credential)
 }
