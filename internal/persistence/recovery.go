@@ -58,7 +58,7 @@ func (s *Store) applyRecord(record eventRecord) {
 	aggregate := observatoryClone(record.Aggregate)
 	s.aggregates[record.TaskID] = aggregate
 	s.audits[record.TaskID] = append(s.audits[record.TaskID], record.Audit)
-	key := record.Operation + "\x00" + record.IdempotencyKey
+	key := idempotencyMapKey(record.Operation, record.IdempotencyKey)
 	s.idempotency[key] = idempotencyRecord{
 		TaskID: record.TaskID, Operation: record.Operation,
 		Result: append([]byte(nil), record.Result...), Aggregate: observatoryClone(record.Aggregate),

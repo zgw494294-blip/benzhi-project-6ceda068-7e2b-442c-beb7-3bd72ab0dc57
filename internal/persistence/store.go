@@ -68,7 +68,7 @@ func (s *Store) Commit(ctx context.Context, request CommitRequest) (CommitResult
 	if strings.TrimSpace(request.IdempotencyKey) == "" {
 		return CommitResult{}, errf("IDEMPOTENCY_KEY_REQUIRED", "idempotencyKey 不能为空")
 	}
-	key := request.Operation + "\x00" + request.IdempotencyKey
+	key := idempotencyMapKey(request.Operation, request.IdempotencyKey)
 	if previous, exists := s.idempotency[key]; exists {
 		if previous.TaskID != request.TaskID || previous.Operation != request.Operation {
 			return CommitResult{}, errf("IDEMPOTENCY_KEY_REUSED", "idempotencyKey 已被其他资源使用")
@@ -120,7 +120,7 @@ func (s *Store) IdempotentResult(ctx context.Context, operation, key, taskID str
 	if s.closed {
 		return CommitResult{}, false, errf("STORE_CLOSED", "持久化仓储已关闭")
 	}
-	record, exists := s.idempotency[operation+"\x00"+strings.TrimSpace(key)]
+	record, exists := s.idempotency[idempotencyMapKey(operation, strings.TrimSpace(key))]
 	if !exists {
 		return CommitResult{}, false, nil
 	}
