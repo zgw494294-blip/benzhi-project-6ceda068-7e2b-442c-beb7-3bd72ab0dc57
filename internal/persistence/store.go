@@ -139,6 +139,9 @@ func (s *Store) Get(ctx context.Context, taskID string) (observatory.Aggregate, 
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.closed {
+		return observatory.Aggregate{}, errf("STORE_CLOSED", "持久化仓储已关闭")
+	}
 	aggregate, ok := s.aggregates[taskID]
 	if !ok {
 		return observatory.Aggregate{}, errf("TASK_NOT_FOUND", "归档任务不存在")
@@ -152,6 +155,9 @@ func (s *Store) Timeline(ctx context.Context, taskID string) ([]observatory.Audi
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, errf("STORE_CLOSED", "持久化仓储已关闭")
+	}
 	if _, ok := s.aggregates[taskID]; !ok {
 		return nil, errf("TASK_NOT_FOUND", "归档任务不存在")
 	}
@@ -166,6 +172,9 @@ func (s *Store) List(ctx context.Context) ([]observatory.Aggregate, error) {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.closed {
+		return nil, errf("STORE_CLOSED", "持久化仓储已关闭")
+	}
 	items := make([]observatory.Aggregate, 0, len(s.aggregates))
 	for _, aggregate := range s.aggregates {
 		items = append(items, observatory.CloneAggregate(aggregate))
