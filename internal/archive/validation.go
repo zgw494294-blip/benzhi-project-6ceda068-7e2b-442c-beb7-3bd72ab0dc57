@@ -29,6 +29,12 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 		}
 		return ValidationResult{Task: previous.Aggregate.Task, Findings: findings, Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return ValidationResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ValidationResult{}, err
@@ -51,6 +57,11 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 		aggregate.Task.State = observatory.StateQuarantined
 	} else {
 		aggregate.Task.State = observatory.StateReviewPending
+	}
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return ValidationResult{}, err
 	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "VALIDATION_EXECUTED", map[string][]string{"findingIds": ids})
 	if err != nil {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -19,6 +20,15 @@ func mapError(err error) (int, string, string, any) {
 	var request *requestError
 	if errors.As(err, &request) {
 		return request.status, request.code, request.message, nil
+	}
+	// Surface client cancellation as a recognizable status so observers can
+	// distinguish it from internal failures; the request produced no side
+	// effects after the idempotency query completed.
+	if errors.Is(err, context.Canceled) {
+		return 499, "CLIENT_CLOSED", "请求已被客户端取消", nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusRequestTimeout, "CONTEXT_DEADLINE_EXCEEDED", "请求处理超时", nil
 	}
 	normalized := archive.NormalizeError(err)
 	status := http.StatusUnprocessableEntity

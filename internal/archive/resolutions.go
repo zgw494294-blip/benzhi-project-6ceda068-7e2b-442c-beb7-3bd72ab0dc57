@@ -22,6 +22,12 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 		_ = json.Unmarshal(previous.Result, &stored)
 		return ResolutionResult{Task: previous.Aggregate.Task, Finding: previous.Aggregate.Findings[stored.FindingID], Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return ResolutionResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ResolutionResult{}, err
@@ -31,6 +37,11 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 		return ResolutionResult{}, err
 	}
 	aggregate.Findings[finding.ID] = finding
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return ResolutionResult{}, err
+	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "RESOLUTION_PROPOSED", map[string]string{"findingId": finding.ID})
 	if err != nil {
 		return ResolutionResult{}, err
@@ -61,6 +72,12 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 		_ = json.Unmarshal(previous.Result, &stored)
 		return ResolutionResult{Task: previous.Aggregate.Task, Finding: previous.Aggregate.Findings[stored.FindingID], Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return ResolutionResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ResolutionResult{}, err
@@ -72,6 +89,11 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 	aggregate.Findings[finding.ID] = finding
 	if command.Accepted && !observatory.HasOpenBlockingFindings(aggregate) {
 		aggregate.Task.State = observatory.StateReviewPending
+	}
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return ResolutionResult{}, err
 	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "RESOLUTION_REVIEWED", map[string]string{"findingId": finding.ID})
 	if err != nil {

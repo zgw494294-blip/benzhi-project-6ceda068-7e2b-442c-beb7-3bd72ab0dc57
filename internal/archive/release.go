@@ -18,6 +18,12 @@ func (s *Service) Freeze(ctx context.Context, taskID string, command FreezeComma
 	} else if found && previous.Aggregate.Manifest != nil {
 		return ManifestResult{Task: previous.Aggregate.Task, Manifest: *previous.Aggregate.Manifest, Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return ManifestResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ManifestResult{}, err
@@ -28,6 +34,11 @@ func (s *Service) Freeze(ctx context.Context, taskID string, command FreezeComma
 	}
 	aggregate.Manifest = &manifest
 	aggregate.Task.State = observatory.StateFrozen
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return ManifestResult{}, err
+	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "MANIFEST_FROZEN", map[string]string{"manifestId": manifest.ID})
 	if err != nil {
 		return ManifestResult{}, err
@@ -54,6 +65,12 @@ func (s *Service) IssueCredential(ctx context.Context, taskID string, command Is
 	} else if found && previous.Aggregate.Credential != nil {
 		return CredentialResult{Task: previous.Aggregate.Task, Credential: *previous.Aggregate.Credential, Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return CredentialResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return CredentialResult{}, err
@@ -64,6 +81,11 @@ func (s *Service) IssueCredential(ctx context.Context, taskID string, command Is
 	}
 	aggregate.Credential = &credential
 	aggregate.Task.State = observatory.StateReleased
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return CredentialResult{}, err
+	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "RELEASE_CREDENTIAL_ISSUED", map[string]string{"credentialId": credential.ID})
 	if err != nil {
 		return CredentialResult{}, err

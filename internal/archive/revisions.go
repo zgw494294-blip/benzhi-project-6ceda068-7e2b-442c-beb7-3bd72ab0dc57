@@ -22,6 +22,12 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 		_ = json.Unmarshal(previous.Result, &stored)
 		return RevisionResult{Task: previous.Aggregate.Task, Revision: previous.Aggregate.Revisions[stored.RevisionID], Replay: true}, nil
 	}
+	// The idempotency query has completed; if the client has since disconnected
+	// or timed out, surface an identifiable context.Canceled and avoid any
+	// version increment, state change, audit record or other persisted effect.
+	if err := canceled(ctx); err != nil {
+		return RevisionResult{}, err
+	}
 	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return RevisionResult{}, err
@@ -38,6 +44,11 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 	aggregate.Revisions[revision.ID] = revision
 	if aggregate.Task.State == observatory.StateDraft {
 		aggregate.Task.State = observatory.StateCollecting
+	}
+	// Re-check cancellation immediately before persisting so a disconnect
+	// arriving between the query and the commit still produces no side effects.
+	if err := canceled(ctx); err != nil {
+		return RevisionResult{}, err
 	}
 	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "DATASET_REVISION_REGISTERED", map[string]string{"revisionId": revision.ID})
 	if err != nil {
