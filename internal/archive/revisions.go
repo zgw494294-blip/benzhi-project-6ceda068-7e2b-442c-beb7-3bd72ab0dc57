@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
 )
@@ -40,7 +41,7 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 	}
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "DATASET_REVISION_REGISTERED", map[string]string{"revisionId": revision.ID})
 	if err != nil {
-		return RevisionResult{}, err
+		return RevisionResult{}, fmt.Errorf("登记数据集修订提交失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {

@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
 )
@@ -29,7 +30,7 @@ func (s *Service) Freeze(ctx context.Context, taskID string, command FreezeComma
 	aggregate.Task.State = observatory.StateFrozen
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "MANIFEST_FROZEN", map[string]string{"manifestId": manifest.ID})
 	if err != nil {
-		return ManifestResult{}, err
+		return ManifestResult{}, fmt.Errorf("冻结归档清单提交失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {
@@ -64,7 +65,7 @@ func (s *Service) IssueCredential(ctx context.Context, taskID string, command Is
 	aggregate.Task.State = observatory.StateReleased
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "RELEASE_CREDENTIAL_ISSUED", map[string]string{"credentialId": credential.ID})
 	if err != nil {
-		return CredentialResult{}, err
+		return CredentialResult{}, fmt.Errorf("签发释放凭据提交失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {

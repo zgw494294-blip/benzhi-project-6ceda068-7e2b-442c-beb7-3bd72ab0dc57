@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
@@ -29,7 +30,7 @@ func (s *Service) CreateTask(ctx context.Context, command CreateTaskCommand) (Mu
 	}
 	result, err := s.commit(ctx, "create-task", meta, aggregate, "ARCHIVE_TASK_CREATED", map[string]string{"taskId": id})
 	if err != nil {
-		return MutationResult{}, err
+		return MutationResult{}, fmt.Errorf("创建归档任务提交失败：%v", err)
 	}
 	return MutationResult{Task: result.Aggregate.Task, Replay: result.Replay}, nil
 }

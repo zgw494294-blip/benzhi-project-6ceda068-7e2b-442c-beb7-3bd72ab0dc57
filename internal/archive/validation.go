@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
@@ -53,7 +54,7 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 	}
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "VALIDATION_EXECUTED", map[string][]string{"findingIds": ids})
 	if err != nil {
-		return ValidationResult{}, err
+		return ValidationResult{}, fmt.Errorf("执行校验提交失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {

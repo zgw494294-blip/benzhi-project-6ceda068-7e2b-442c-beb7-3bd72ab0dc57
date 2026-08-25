@@ -3,6 +3,7 @@ package archive
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
 )
@@ -32,7 +33,7 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 	aggregate.Findings[finding.ID] = finding
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "RESOLUTION_PROPOSED", map[string]string{"findingId": finding.ID})
 	if err != nil {
-		return ResolutionResult{}, err
+		return ResolutionResult{}, fmt.Errorf("提交异常处置提议失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {
@@ -73,7 +74,7 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 	}
 	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "RESOLUTION_REVIEWED", map[string]string{"findingId": finding.ID})
 	if err != nil {
-		return ResolutionResult{}, err
+		return ResolutionResult{}, fmt.Errorf("提交异常处置审核失败：%v", err)
 	}
 	if result.Replay {
 		var stored struct {
