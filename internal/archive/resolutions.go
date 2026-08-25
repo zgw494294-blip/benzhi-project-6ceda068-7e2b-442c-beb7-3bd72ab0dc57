@@ -11,8 +11,9 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 	if err := validateMeta(command.CommandMeta, RoleAdministrator); err != nil {
 		return ResolutionResult{}, err
 	}
+	operationCtx := context.WithoutCancel(ctx)
 	operation := "propose-resolution:" + taskID
-	if previous, found, err := s.replay(ctx, operation, taskID, command.IdempotencyKey); err != nil {
+	if previous, found, err := s.replay(operationCtx, operation, taskID, command.IdempotencyKey); err != nil {
 		return ResolutionResult{}, err
 	} else if found {
 		var stored struct {
@@ -21,7 +22,7 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 		_ = json.Unmarshal(previous.Result, &stored)
 		return ResolutionResult{Task: previous.Aggregate.Task, Finding: previous.Aggregate.Findings[stored.FindingID], Replay: true}, nil
 	}
-	aggregate, err := s.repository.Get(ctx, taskID)
+	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ResolutionResult{}, err
 	}
@@ -30,7 +31,7 @@ func (s *Service) ProposeResolution(ctx context.Context, taskID string, command 
 		return ResolutionResult{}, err
 	}
 	aggregate.Findings[finding.ID] = finding
-	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "RESOLUTION_PROPOSED", map[string]string{"findingId": finding.ID})
+	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "RESOLUTION_PROPOSED", map[string]string{"findingId": finding.ID})
 	if err != nil {
 		return ResolutionResult{}, err
 	}
@@ -49,8 +50,9 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 	if err := validateMeta(command.CommandMeta, RoleReviewer); err != nil {
 		return ResolutionResult{}, err
 	}
+	operationCtx := context.WithoutCancel(ctx)
 	operation := "review-resolution:" + taskID
-	if previous, found, err := s.replay(ctx, operation, taskID, command.IdempotencyKey); err != nil {
+	if previous, found, err := s.replay(operationCtx, operation, taskID, command.IdempotencyKey); err != nil {
 		return ResolutionResult{}, err
 	} else if found {
 		var stored struct {
@@ -59,7 +61,7 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 		_ = json.Unmarshal(previous.Result, &stored)
 		return ResolutionResult{Task: previous.Aggregate.Task, Finding: previous.Aggregate.Findings[stored.FindingID], Replay: true}, nil
 	}
-	aggregate, err := s.repository.Get(ctx, taskID)
+	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ResolutionResult{}, err
 	}
@@ -71,7 +73,7 @@ func (s *Service) ReviewResolution(ctx context.Context, taskID string, command R
 	if command.Accepted && !observatory.HasOpenBlockingFindings(aggregate) {
 		aggregate.Task.State = observatory.StateReviewPending
 	}
-	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "RESOLUTION_REVIEWED", map[string]string{"findingId": finding.ID})
+	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "RESOLUTION_REVIEWED", map[string]string{"findingId": finding.ID})
 	if err != nil {
 		return ResolutionResult{}, err
 	}

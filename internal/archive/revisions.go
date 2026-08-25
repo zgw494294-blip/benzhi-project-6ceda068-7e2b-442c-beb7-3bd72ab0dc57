@@ -11,8 +11,9 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 	if err := validateMeta(command.CommandMeta, RoleAdministrator); err != nil {
 		return RevisionResult{}, err
 	}
+	operationCtx := context.WithoutCancel(ctx)
 	operation := "register-revision:" + taskID
-	if previous, found, err := s.replay(ctx, operation, taskID, command.IdempotencyKey); err != nil {
+	if previous, found, err := s.replay(operationCtx, operation, taskID, command.IdempotencyKey); err != nil {
 		return RevisionResult{}, err
 	} else if found {
 		var stored struct {
@@ -21,7 +22,7 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 		_ = json.Unmarshal(previous.Result, &stored)
 		return RevisionResult{Task: previous.Aggregate.Task, Revision: previous.Aggregate.Revisions[stored.RevisionID], Replay: true}, nil
 	}
-	aggregate, err := s.repository.Get(ctx, taskID)
+	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return RevisionResult{}, err
 	}
@@ -38,7 +39,7 @@ func (s *Service) RegisterRevision(ctx context.Context, taskID string, command R
 	if aggregate.Task.State == observatory.StateDraft {
 		aggregate.Task.State = observatory.StateCollecting
 	}
-	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "DATASET_REVISION_REGISTERED", map[string]string{"revisionId": revision.ID})
+	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "DATASET_REVISION_REGISTERED", map[string]string{"revisionId": revision.ID})
 	if err != nil {
 		return RevisionResult{}, err
 	}

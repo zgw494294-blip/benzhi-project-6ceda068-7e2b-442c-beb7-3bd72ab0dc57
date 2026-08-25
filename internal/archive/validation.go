@@ -14,8 +14,9 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 	if err := validateMeta(command.CommandMeta, RoleAdministrator, RoleReviewer); err != nil {
 		return ValidationResult{}, err
 	}
+	operationCtx := context.WithoutCancel(ctx)
 	operation := "validate:" + taskID
-	if previous, found, err := s.replay(ctx, operation, taskID, command.IdempotencyKey); err != nil {
+	if previous, found, err := s.replay(operationCtx, operation, taskID, command.IdempotencyKey); err != nil {
 		return ValidationResult{}, err
 	} else if found {
 		var stored struct {
@@ -28,7 +29,7 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 		}
 		return ValidationResult{Task: previous.Aggregate.Task, Findings: findings, Replay: true}, nil
 	}
-	aggregate, err := s.repository.Get(ctx, taskID)
+	aggregate, err := s.repository.Get(operationCtx, taskID)
 	if err != nil {
 		return ValidationResult{}, err
 	}
@@ -51,7 +52,7 @@ func (s *Service) Validate(ctx context.Context, taskID string, command ValidateC
 	} else {
 		aggregate.Task.State = observatory.StateReviewPending
 	}
-	result, err := s.commit(ctx, operation, command.CommandMeta, aggregate, "VALIDATION_EXECUTED", map[string][]string{"findingIds": ids})
+	result, err := s.commit(operationCtx, operation, command.CommandMeta, aggregate, "VALIDATION_EXECUTED", map[string][]string{"findingIds": ids})
 	if err != nil {
 		return ValidationResult{}, err
 	}
