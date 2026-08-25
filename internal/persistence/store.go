@@ -101,10 +101,19 @@ func (s *Store) Commit(ctx context.Context, request CommitRequest) (CommitResult
 	}
 	record.Audit.Sequence = record.Sequence
 	record.Hash = calculateRecordHash(record)
+	aggregate := observatoryClone(record.Aggregate)
+	s.aggregates[record.TaskID] = aggregate
+	s.audits[record.TaskID] = append(s.audits[record.TaskID], record.Audit)
+	idempotencyKey := record.Operation + "\x00" + record.IdempotencyKey
+	s.idempotency[idempotencyKey] = idempotencyRecord{
+		TaskID: record.TaskID, Operation: record.Operation,
+		Result: append([]byte(nil), record.Result...), Aggregate: observatoryClone(record.Aggregate),
+	}
+	s.lastSequence = record.Sequence
+	s.lastHash = record.Hash
 	if err := s.appendRecord(record); err != nil {
 		return CommitResult{}, err
 	}
-	s.applyRecord(record)
 	if err := s.writeSnapshotLocked(); err != nil {
 		return CommitResult{}, err
 	}
