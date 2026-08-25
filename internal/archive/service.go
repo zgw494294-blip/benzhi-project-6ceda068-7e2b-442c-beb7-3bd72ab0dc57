@@ -18,9 +18,11 @@ const (
 )
 
 type Service struct {
-	repository persistence.Repository
-	now        func() time.Time
-	ids        IDGenerator
+	repository          persistence.Repository
+	now                 func() time.Time
+	ids                 IDGenerator
+	revisionViewScratch []observatory.DatasetRevision
+	findingViewScratch  []observatory.ValidationFinding
 }
 
 func NewService(repository persistence.Repository, clock func() time.Time, ids IDGenerator) *Service {
@@ -91,21 +93,23 @@ func (s *Service) replay(ctx context.Context, operation, taskID, key string) (pe
 	return s.repository.IdempotentResult(ctx, operation, strings.TrimSpace(key), taskID)
 }
 
-func detailFromAggregate(aggregate observatory.Aggregate) TaskDetail {
-	revisions := make([]observatory.DatasetRevision, 0, len(aggregate.Revisions))
+func (s *Service) detailFromAggregate(aggregate observatory.Aggregate) TaskDetail {
+	s.revisionViewScratch = s.revisionViewScratch[:0]
 	for _, revision := range aggregate.Revisions {
-		revisions = append(revisions, revision)
+		s.revisionViewScratch = append(s.revisionViewScratch, revision)
 	}
+	revisions := s.revisionViewScratch
 	sort.Slice(revisions, func(i, j int) bool {
 		if revisions[i].LogicalPath != revisions[j].LogicalPath {
 			return revisions[i].LogicalPath < revisions[j].LogicalPath
 		}
 		return revisions[i].SubmittedAt.Before(revisions[j].SubmittedAt)
 	})
-	findings := make([]observatory.ValidationFinding, 0, len(aggregate.Findings))
+	s.findingViewScratch = s.findingViewScratch[:0]
 	for _, finding := range aggregate.Findings {
-		findings = append(findings, finding)
+		s.findingViewScratch = append(s.findingViewScratch, finding)
 	}
+	findings := s.findingViewScratch
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].RevisionID != findings[j].RevisionID {
 			return findings[i].RevisionID < findings[j].RevisionID

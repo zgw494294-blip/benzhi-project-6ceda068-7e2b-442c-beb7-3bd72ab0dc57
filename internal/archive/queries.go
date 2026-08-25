@@ -11,7 +11,7 @@ func (s *Service) GetTask(ctx context.Context, taskID string) (TaskDetail, error
 	if err != nil {
 		return TaskDetail{}, err
 	}
-	return detailFromAggregate(aggregate), nil
+	return s.detailFromAggregate(aggregate), nil
 }
 
 func (s *Service) ListTasks(ctx context.Context) ([]observatory.ArchiveTask, error) {
