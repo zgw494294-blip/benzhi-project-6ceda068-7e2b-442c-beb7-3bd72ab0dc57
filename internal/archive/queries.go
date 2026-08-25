@@ -35,9 +35,20 @@ func (s *Service) Timeline(ctx context.Context, taskID string) (TimelineResult, 
 }
 
 func (s *Service) Verify(ctx context.Context, taskID string) (observatory.VerificationResult, error) {
+	s.verificationMu.RLock()
+	if cached, exists := s.verificationCache[taskID]; exists {
+		s.verificationMu.RUnlock()
+		return cloneVerificationResult(cached), nil
+	}
+	s.verificationMu.RUnlock()
+
 	aggregate, err := s.repository.Get(ctx, taskID)
 	if err != nil {
 		return observatory.VerificationResult{}, err
 	}
-	return observatory.VerifyRelease(aggregate), nil
+	result := observatory.VerifyRelease(aggregate)
+	s.verificationMu.Lock()
+	s.verificationCache[taskID] = cloneVerificationResult(result)
+	s.verificationMu.Unlock()
+	return result, nil
 }

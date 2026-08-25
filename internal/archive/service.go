@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"benzhi-project-6ceda068-7e2b-442c-beb7-3bd72ab0dc57/internal/observatory"
@@ -18,9 +19,11 @@ const (
 )
 
 type Service struct {
-	repository persistence.Repository
-	now        func() time.Time
-	ids        IDGenerator
+	repository        persistence.Repository
+	now               func() time.Time
+	ids               IDGenerator
+	verificationMu    sync.RWMutex
+	verificationCache map[string]observatory.VerificationResult
 }
 
 func NewService(repository persistence.Repository, clock func() time.Time, ids IDGenerator) *Service {
@@ -30,7 +33,19 @@ func NewService(repository persistence.Repository, clock func() time.Time, ids I
 	if ids == nil {
 		ids = &RandomIDGenerator{}
 	}
-	return &Service{repository: repository, now: clock, ids: ids}
+	return &Service{
+		repository:        repository,
+		now:               clock,
+		ids:               ids,
+		verificationCache: make(map[string]observatory.VerificationResult),
+	}
+}
+
+func cloneVerificationResult(source observatory.VerificationResult) observatory.VerificationResult {
+	return observatory.VerificationResult{
+		Valid:   source.Valid,
+		Reasons: append([]string(nil), source.Reasons...),
+	}
 }
 
 func validateMeta(meta CommandMeta, roles ...string) error {
